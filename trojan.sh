@@ -2,7 +2,7 @@
 
 # Update & install dependencies
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl wget unzip
+sudo apt install -y curl wget unzip nginx
 
 # Hentikan proses Nginx lama dan bebaskan port 80
 echo "Stopping any existing Nginx process..."
@@ -37,7 +37,9 @@ cat > /etc/trojan-go/config.json <<EOL
   "remote_port": 443,
   "password": ["freenetaxis2025"],
   "ssl": {
-    "enabled": false
+    "enabled": true,
+    "cert": "/etc/ssl/certs/ssl-cert-snakeoil.pem",
+    "key": "/etc/ssl/private/ssl-cert-snakeoil.key"
   },
   "websocket": {
     "enabled": true,
@@ -46,6 +48,42 @@ cat > /etc/trojan-go/config.json <<EOL
   }
 }
 EOL
+
+# Setup Nginx Reverse Proxy
+cat > /etc/nginx/sites-available/trojan-go <<EOL
+server {
+    listen 80;
+    server_name 8.215.192.205;
+
+    location /axisws {
+        proxy_pass http://127.0.0.1:80; # Localhost where Trojan-Go is listening
+        proxy_set_header Host api.ovo.id;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name 8.215.192.205;
+
+    ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+    ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+    location /axisws {
+        proxy_pass http://127.0.0.1:80; # Localhost where Trojan-Go is listening
+        proxy_set_header Host api.ovo.id;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOL
+
+# Enable Nginx Site & Restart Nginx
+sudo ln -s /etc/nginx/sites-available/trojan-go /etc/nginx/sites-enabled/
+sudo systemctl restart nginx
 
 # Setup systemd service for Trojan-Go
 cat > /etc/systemd/system/trojan-go.service <<EOL
@@ -63,9 +101,9 @@ LimitNOFILE=4096
 WantedBy=multi-user.target
 EOL
 
-# Reload systemd and start Trojan-Go
+# Reload systemd to apply the new service and start Trojan-Go
 sudo systemctl daemon-reload
 sudo systemctl start trojan-go
 sudo systemctl enable trojan-go
 
-echo "Trojan-Go has been installed and started successfully on IP 8.215.192.205!"
+echo "Trojan-Go has been installed, reverse proxy configured, and systemd service has been set up successfully on IP 8.215.192.205!"
