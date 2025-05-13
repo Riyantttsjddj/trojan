@@ -1,109 +1,91 @@
 #!/bin/bash
 
-# Update & install dependencies
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl wget unzip nginx
+echo "=== TROJAN-GO AUTO INSTALLER ==="
 
-# Hentikan proses Nginx lama dan bebaskan port 80
-echo "Stopping any existing Nginx process..."
-sudo systemctl stop nginx
-sudo systemctl disable nginx
-sudo rm /etc/systemd/system/nginx.service
+# 1. Update dan pasang dependensi
+apt update && apt upgrade -y
+apt install -y curl unzip wget sudo
 
-# Unmask port 80 jika ada
-echo "Unmasking port 80..."
-sudo fuser -k 80/tcp
+# 2. Stop dan matikan Nginx agar tidak bentrok dengan port 80/443
+echo "[+] Mematikan Nginx jika ada..."
+systemctl stop nginx >/dev/null 2>&1
+systemctl disable nginx >/dev/null 2>&1
+fuser -k 80/tcp || true
+fuser -k 443/tcp || true
 
-# Install Go
-wget https://golang.org/dl/go1.19.4.linux-amd64.tar.gz
-sudo tar -C /usr/local -xvzf go1.19.4.linux-amd64.tar.gz
-echo "export PATH=$PATH:/usr/local/go/bin" >> ~/.profile
-source ~/.profile
+# 3. Buat folder instalasi
+mkdir -p /usr/local/bin/trojan-go
+cd /usr/local/bin/trojan-go
 
-# Install Trojan-Go
-cd /usr/local/bin
-wget https://github.com/p4gefau1t/trojan-go/releases/download/v0.11.0/trojan-go-linux-amd64-v0.11.0.tar.gz
-tar -xzvf trojan-go-linux-amd64-v0.11.0.tar.gz
-rm trojan-go-linux-amd64-v0.11.0.tar.gz
+# 4. Download Trojan-Go versi terbaru
+echo "[+] Mengunduh Trojan-Go versi terbaru..."
+wget -O trojan-go.zip https://github.com/p4gefau1t/trojan-go/releases/latest/download/trojan-go-linux-amd64.zip
+unzip trojan-go.zip
+chmod +x trojan-go
+rm trojan-go.zip
 
-# Setup configuration file
+# 5. Buat folder konfigurasi
 mkdir -p /etc/trojan-go
-cat > /etc/trojan-go/config.json <<EOL
+
+# 6. Buat config.json dengan multi host
+cat > /etc/trojan-go/config.json <<EOF
 {
   "run_type": "server",
   "local_addr": "0.0.0.0",
-  "local_port": 80,
+  "local_port": 443,
   "remote_addr": "127.0.0.1",
-  "remote_port": 443,
+  "remote_port": 80,
   "password": ["freenetaxis2025"],
   "ssl": {
-    "enabled": true,
     "cert": "/etc/ssl/certs/ssl-cert-snakeoil.pem",
     "key": "/etc/ssl/private/ssl-cert-snakeoil.key"
   },
   "websocket": {
     "enabled": true,
     "path": "/axisws",
-    "host": "api.ovo.id"
+    "host": [
+      "api.ovo.id",
+      "my.udemy.com",
+      "dev.appsflyer.com"
+    ]
   }
 }
-EOL
+EOF
 
-# Setup Nginx Reverse Proxy
-cat > /etc/nginx/sites-available/trojan-go <<EOL
-server {
-    listen 80;
-    server_name 8.215.192.205;
+# 7. Pastikan sertifikat snakeoil tersedia
+apt install -y ssl-cert
 
-    location /axisws {
-        proxy_pass http://127.0.0.1:80; # Localhost where Trojan-Go is listening
-        proxy_set_header Host api.ovo.id;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-}
-
-server {
-    listen 443 ssl;
-    server_name 8.215.192.205;
-
-    ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
-    ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
-
-    location /axisws {
-        proxy_pass http://127.0.0.1:80; # Localhost where Trojan-Go is listening
-        proxy_set_header Host api.ovo.id;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-}
-EOL
-
-# Enable Nginx Site & Restart Nginx
-sudo ln -s /etc/nginx/sites-available/trojan-go /etc/nginx/sites-enabled/
-sudo systemctl restart nginx
-
-# Setup systemd service for Trojan-Go
-cat > /etc/systemd/system/trojan-go.service <<EOL
+# 8. Buat systemd service
+cat > /etc/systemd/system/trojan-go.service <<EOF
 [Unit]
-Description=Trojan-Go Service
+Description=Trojan-Go Server
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/trojan-go -config /etc/trojan-go/config.json
-Restart=on-failure
-User=root
-LimitNOFILE=4096
+Type=simple
+ExecStart=/usr/local/bin/trojan-go/trojan-go -config /etc/trojan-go/config.json
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
-EOL
+EOF
 
-# Reload systemd to apply the new service and start Trojan-Go
-sudo systemctl daemon-reload
-sudo systemctl start trojan-go
-sudo systemctl enable trojan-go
+# 9. Aktifkan service
+echo "[+] Menjalankan Trojan-Go..."
+systemctl daemon-reload
+systemctl enable trojan-go
+systemctl restart trojan-go
 
-echo "Trojan-Go has been installed, reverse proxy configured, and systemd service has been set up successfully on IP 8.215.192.205!"
+# 10. Cek status
+sleep 2
+systemctl status trojan-go --no-pager
+
+echo ""
+echo "=== INSTALASI SELESAI ==="
+echo "IP VPS Anda: $(curl -s ifconfig.me)"
+echo "Port       : 443 (SSL + WS)"
+echo "Path WS    : /axisws"
+echo "Password   : freenetaxis2025"
+echo "Multi Host : api.ovo.id, my.udemy.com, dev.appsflyer.com"
+echo ""
